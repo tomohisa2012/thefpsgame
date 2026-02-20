@@ -24,12 +24,24 @@ window.addEventListener("resize",resize);
 
 /* ===== TEXTURES ===== */
 const wallTex=new Image();
-wallTex.src="wall.png";
+wallTex.src="assets/wall.png";
+
+const floorTex=new Image();
+floorTex.src="assets/floor.png";
+
+const ceilingTex=new Image();
+ceilingTex.src="assets/ceiling.png";
+
+const gunIdle=new Image();
+gunIdle.src="assets/gun_idle.png";
+
+const gunFire=new Image();
+gunFire.src="assets/gun_fire.png";
 
 const enemySprites=[];
 for(let i=0;i<8;i++){
 let img=new Image();
-img.src=`enemy_${i}.png`;
+img.src=`assets/enemy_${i}.png`;
 enemySprites.push(img);
 }
 
@@ -38,8 +50,8 @@ const map=[
 "111111111111111",
 "100000000000001",
 "101111011111101",
-"100001010000001",
-"111101010111101",
+"100001000000001",
+"111101011111101",
 "100001000100001",
 "101111110101101",
 "100000000000001",
@@ -57,11 +69,15 @@ return map[my][mx]=="1";
 let player={x:2,y:2,angle:0};
 let keys={};
 
+let flash=0;
+let recoil=0;
+
 document.addEventListener("keydown",e=>keys[e.key]=true);
 document.addEventListener("keyup",e=>keys[e.key]=false);
 
 canvas.addEventListener("click",()=>{
 canvas.requestPointerLock();
+shoot();
 });
 
 document.addEventListener("mousemove",e=>{
@@ -71,18 +87,18 @@ player.angle+=e.movementX*0.002;
 });
 
 /* ===== ENEMY ===== */
-function createEnemy(){
-return{
-x:6,
-y:6,
-dir:0
-};
-}
+let enemies=[{x:6,y:6,dir:0}];
 
-let enemies=[createEnemy()];
+/* ===== SHOOT ===== */
+function shoot(){
+if(flash>0) return;
+flash=6;
+recoil=12;
+}
 
 /* ===== UPDATE ===== */
 function update(){
+
 let speed=0.05;
 let nx=player.x;
 let ny=player.y;
@@ -95,19 +111,36 @@ if(keys["d"]){ nx+=Math.cos(player.angle+Math.PI/2)*speed; ny+=Math.sin(player.a
 if(!isWall(nx,player.y)) player.x=nx;
 if(!isWall(player.x,ny)) player.y=ny;
 
-/* 敵の向き更新 */
 enemies.forEach(e=>{
 let dx=player.x-e.x;
 let dy=player.y-e.y;
 e.dir=Math.atan2(dy,dx);
 });
+
+if(flash>0) flash--;
+recoil*=0.8;
 }
 
 /* ===== RENDER ===== */
 function render(){
 
-ctx.fillStyle="#000";
-ctx.fillRect(0,0,canvas.width,canvas.height);
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+/* ===== CEILING ===== */
+if(ceilingTex.complete && ceilingTex.naturalWidth!==0){
+ctx.drawImage(ceilingTex,0,0,canvas.width,canvas.height/2);
+}else{
+ctx.fillStyle="#222";
+ctx.fillRect(0,0,canvas.width,canvas.height/2);
+}
+
+/* ===== FLOOR ===== */
+if(floorTex.complete && floorTex.naturalWidth!==0){
+ctx.drawImage(floorTex,0,canvas.height/2,canvas.width,canvas.height/2);
+}else{
+ctx.fillStyle="#111";
+ctx.fillRect(0,canvas.height/2,canvas.width,canvas.height/2);
+}
 
 let rays=320;
 let fov=Math.PI/3;
@@ -124,18 +157,25 @@ if(isWall(rx,ry)) break;
 dist+=0.02;
 }
 
-let wallH=canvas.height/(dist+0.1);
+let corrected=dist*Math.cos(angle-player.angle);
+let wallH=canvas.height/(corrected+0.0001);
 let wallX=i*(canvas.width/rays);
 
-/* テクスチャ描画 */
 let hitX=player.x+Math.cos(angle)*dist;
-let hitY=player.y+Math.sin(angle)*dist;
+let texX=(hitX%1);
 
-let texX=(hitX%1)*wallTex.width;
-
+if(wallTex.complete && wallTex.naturalWidth!==0){
 ctx.drawImage(
 wallTex,
-texX,0,1,wallTex.height,
+texX*wallTex.width,0,1,wallTex.height,
+wallX,
+(canvas.height/2)-(wallH/2),
+canvas.width/rays+1,
+wallH
+);
+}else{
+ctx.fillStyle="#884444";
+ctx.fillRect(
 wallX,
 (canvas.height/2)-(wallH/2),
 canvas.width/rays+1,
@@ -143,7 +183,18 @@ wallH
 );
 }
 
-/* ===== ENEMY RENDER ===== */
+/* FOG */
+let fog=Math.min(corrected/8,1);
+ctx.fillStyle=`rgba(0,0,0,${fog})`;
+ctx.fillRect(
+wallX,
+(canvas.height/2)-(wallH/2),
+canvas.width/rays+1,
+wallH
+);
+}
+
+/* ===== ENEMY ===== */
 enemies.forEach(e=>{
 
 let dx=e.x-player.x;
@@ -157,13 +208,12 @@ if(Math.abs(ang)<fov/2){
 let size=canvas.height/(dist);
 let screenX=(ang/(fov/2))*canvas.width/2+canvas.width/2;
 
-/* 8方向計算 */
 let relative=e.dir-player.angle;
 relative=(relative+Math.PI*3)%(Math.PI*2);
-
 let index=Math.floor((relative/(Math.PI*2))*8);
 index=(index+8)%8;
 
+if(enemySprites[index].complete && enemySprites[index].naturalWidth!==0){
 ctx.drawImage(
 enemySprites[index],
 screenX-size/2,
@@ -171,8 +221,50 @@ canvas.height/2-size/2,
 size,
 size
 );
+}else{
+ctx.fillStyle="lime";
+ctx.fillRect(
+screenX-size/4,
+canvas.height/2-size/2,
+size/2,
+size
+);
+}
+
+/* enemy fog */
+let efog=Math.min(dist/8,1);
+ctx.fillStyle=`rgba(0,0,0,${efog})`;
+ctx.fillRect(
+screenX-size/2,
+canvas.height/2-size/2,
+size,
+size
+);
 }
 });
+
+/* ===== GUN ===== */
+let gw=canvas.width*0.45;
+let gh=canvas.height*0.4;
+let gx=canvas.width-gw-30;
+let gy=canvas.height-gh-10+recoil;
+
+if(flash>0 && gunFire.complete){
+ctx.drawImage(gunFire,gx,gy,gw,gh);
+}else if(gunIdle.complete){
+ctx.drawImage(gunIdle,gx,gy,gw,gh);
+}else{
+ctx.fillStyle="#333";
+ctx.fillRect(gx,gy,gw,gh);
+}
+
+if(flash>0){
+ctx.fillStyle="orange";
+ctx.beginPath();
+ctx.arc(gx+gw+10,gy+gh*0.4,25,0,Math.PI*2);
+ctx.fill();
+}
+
 }
 
 /* LOOP */
